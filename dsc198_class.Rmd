@@ -1,0 +1,357 @@
+---
+title: "Baseball Pitch Classification"
+output: html_notebook
+---
+```{r}
+# Libraries to be imported
+library(tidyverse)
+library(plotly)
+library(class)
+library(caret)
+library(umap)
+```
+
+```{r}
+# Import Training and Test Data
+train <- readRDS("2017_04_03_to_2017_04_20_pitch.rds")
+test <- readRDS("2016_04_27_to_2016_04_30_pitch.rds")
+```
+
+```{r}
+# Cleaning the data
+train_cleaned <- train %>%
+  filter(!pitch_type %in% c("KN", "IN", "PO", "EP", "FO"),
+         !is.na(pitch_type)) %>%
+  select(pitch_type, start_speed, end_speed, pfx_x, pfx_z, px, pz, x0, z0, vx0, vz0)
+test_cleaned <- test %>%
+  filter(!pitch_type %in% c("KN", "IN", "PO", "EP", "FO", "SC"),
+         !is.na(pitch_type)) %>%
+  select(pitch_type, start_speed, end_speed, pfx_x, pfx_z, px, pz, x0, z0, vx0, vz0)
+```
+
+```{r}
+scale_by <- function(x, mean, sd){
+  (x - mean) / sd
+}
+scale_values <- train_cleaned %>% 
+  select(-pitch_type) %>% 
+  lapply(function(x){
+    list(mean = mean(x), sd = sd(x))
+  })
+## prepare the training data
+train_pitches <- train_cleaned$pitch_type
+train_cleaned_scaled <- colnames(train_cleaned) %>% 
+  setdiff("pitch_type") %>%
+  lapply(function(column_name){
+    scale_by(
+      x = train_cleaned[[column_name]],
+      mean = scale_values[[column_name]][["mean"]],
+      sd = scale_values[[column_name]][["sd"]]
+    )
+  }) %>% 
+  do.call('data.frame',.) %>% 
+  setNames(colnames(train_cleaned) %>%  setdiff("pitch_type"))
+## prepare the testing data
+test_pitches <- test_cleaned$pitch_type
+test_cleaned_scaled <- colnames(test_cleaned) %>% 
+  setdiff("pitch_type") %>%
+  lapply(function(column_name){
+    scale_by(
+      test_cleaned[[column_name]],
+      scale_values[[column_name]][["mean"]],
+      scale_values[[column_name]][["sd"]]
+    )
+  }) %>% 
+  do.call('data.frame',.) %>% 
+  setNames(colnames(test_cleaned) %>% setdiff("pitch_type"))
+```
+
+```{r}
+fit_knn <- knn(
+  train = train_cleaned_scaled,
+  test = test_cleaned_scaled,
+  cl = train_pitches,
+  k = 13,
+  prob = TRUE
+)
+```
+
+```{r}
+pred <- data.frame(Pred = fit_knn, Observed = test_pitches)
+table("Predicted" = pred$Pred, "Observed" = pred$Observed)
+```
+```{r}
+miss_classification_rate <- 1 - sum(pred$Pred == pred$Observed) / nrow(test_cleaned_scaled)
+miss_classification_rate
+```
+```{r}
+# Import Player Data
+player1 <- read_csv("cab.csv", skip = 2)
+player2 <- read_csv("mar.csv", skip = 2)
+player3 <- read_csv("mat.csv", skip = 2)
+player4 <- read_csv("mit.csv", skip = 2)
+player5 <- read_csv("conl.csv", skip = 2)
+player6 <- read_csv("tre.csv", skip = 2)
+```
+```{r}
+# Making the player data compatible with training data
+# Step 1: Harmonizing Columns of Interest
+colnames(player1)[3] <- "start_speed"
+colnames(player1)[8] <- "pfx_x"
+colnames(player1)[9] <- "pfx_z"
+colnames(player1)[16] <- "pitch_type"
+colnames(player2)[3] <- "start_speed"
+colnames(player2)[8] <- "pfx_x"
+colnames(player2)[9] <- "pfx_z"
+colnames(player2)[16] <- "pitch_type"
+colnames(player3)[3] <- "start_speed"
+colnames(player3)[8] <- "pfx_x"
+colnames(player3)[9] <- "pfx_z"
+colnames(player3)[16] <- "pitch_type"
+colnames(player4)[3] <- "start_speed"
+colnames(player4)[8] <- "pfx_x"
+colnames(player4)[9] <- "pfx_z"
+colnames(player4)[16] <- "pitch_type"
+colnames(player5)[3] <- "start_speed"
+colnames(player5)[8] <- "pfx_x"
+colnames(player5)[9] <- "pfx_z"
+colnames(player5)[16] <- "pitch_type"
+colnames(player6)[3] <- "start_speed"
+colnames(player6)[8] <- "pfx_x"
+colnames(player6)[9] <- "pfx_z"
+colnames(player6)[16] <- "pitch_type"
+```
+
+```{r}
+# Step 2: Harmonizing Column Values
+
+# Pitch Codes
+
+# Remove whitespace
+player1 <- player1 %>% mutate(pitch_type = gsub('\\s+', '', player1$pitch_type))
+player2 <- player2 %>% mutate(pitch_type = gsub('\\s+', '', player2$pitch_type))
+player3 <- player3 %>% mutate(pitch_type = gsub('\\s+', '', player3$pitch_type))
+player4 <- player4 %>% mutate(pitch_type = gsub('\\s+', '', player4$pitch_type))
+player5 <- player5 %>% mutate(pitch_type = gsub('\\s+', '', player5$pitch_type))
+player6 <- player6 %>% mutate(pitch_type = gsub('\\s+', '', player6$pitch_type))
+```
+
+```{r}
+# Recode pitches
+player1 <- player1 %>% mutate(pitch_type = recode(pitch_type, FB = "FF"))
+player2 <- player2 %>% mutate(pitch_type = recode(pitch_type, FB = "FF", CT = "FC"))
+player3 <- player3 %>% mutate(pitch_type = recode(pitch_type, FB = "FF", CT = "FC", CV = "KC"))
+player4 <- player4 %>% mutate(pitch_type = recode(pitch_type, FB = "FF", CT = "FC", SP = "FS"))
+player5 <- player5 %>% mutate(pitch_type = recode(pitch_type, FB = "FF", CT = "FC", SP = "FS", CV = "KC"))
+player6 <- player6 %>% mutate(pitch_type = recode(pitch_type, FB = "FF"))
+```
+
+```{r}
+# Change values (pfx_x)
+player1$pfx_x = -1 * player1$pfx_x
+```
+
+```{r}
+player2$pfx_x = -1 * player2$pfx_x
+player3$pfx_x = -1 * player3$pfx_x
+player4$pfx_x = -1 * player4$pfx_x
+```
+
+```{r}
+# Remove null observations player 5 and 6
+player4 <- player4[-c(18), ]
+player5 <- player5[-c(6, 7, 11, 13, 15, 20, 30, 31), ]
+player6 <- player6[-c(26), ]
+```
+
+```{r}
+# Converting columns to numeric in datasets 4, 5 and 6
+player4$pfx_z <- as.numeric(player4$pfx_z)
+player5$start_speed <- as.numeric(player5$start_speed)
+player5$pfx_x <- as.numeric(player5$pfx_x)
+player5$pfx_z <- as.numeric(player5$pfx_z)
+player6$start_speed <- as.numeric(player6$start_speed)
+player6$pfx_x <- as.numeric(player6$pfx_x)
+player6$pfx_z <- as.numeric(player6$pfx_z)
+```
+
+
+```{r}
+player5$pfx_x = -1 * player5$pfx_x
+player6$pfx_x = -1 * player6$pfx_x
+```
+
+```{r}
+# Now, it is time to retrieve only the subsets of matching columns
+test_1 <- player1[c("start_speed", "pfx_x", "pfx_z", "pitch_type")]
+```
+
+```{r}
+# Training set
+training_player <- train_cleaned_scaled[c("start_speed", "pfx_x", "pfx_z")]
+```
+
+```{r}
+# Cleaning test set
+pitches_1 <- test_1$pitch_type
+test1_cleaned_scaled <- colnames(test_1) %>% 
+  setdiff("pitch_type") %>%
+  lapply(function(column_name){
+    scale_by(
+      test_1[[column_name]],
+      scale_values[[column_name]][["mean"]],
+      scale_values[[column_name]][["sd"]]
+    )
+  }) %>% 
+  do.call('data.frame',.) %>% 
+  setNames(colnames(test_1) %>% setdiff("pitch_type"))
+```
+
+```{r}
+# Knn
+fit_knn_1 <- knn(
+  train = training_player,
+  test = test1_cleaned_scaled,
+  cl = train_pitches,
+  k = 13,
+  prob = TRUE
+)
+```
+
+```{r}
+pred_1 <- data.frame(Pred = fit_knn_1, Observed = pitches_1)
+table("Predicted" = pred_1$Pred, "Observed" = pred_1$Observed)
+```
+```{r}
+# Replicated process on other players
+
+test_2 <- player2[c("start_speed", "pfx_x", "pfx_z", "pitch_type")]
+pitches_2 <- test_2$pitch_type
+test2_cleaned_scaled <- colnames(test_2) %>% 
+  setdiff("pitch_type") %>%
+  lapply(function(column_name){
+    scale_by(
+      test_2[[column_name]],
+      scale_values[[column_name]][["mean"]],
+      scale_values[[column_name]][["sd"]]
+    )
+  }) %>% 
+  do.call('data.frame',.) %>% 
+  setNames(colnames(test_2) %>% setdiff("pitch_type"))
+fit_knn_2 <- knn(
+  train = training_player,
+  test = test2_cleaned_scaled,
+  cl = train_pitches,
+  k = 13,
+  prob = TRUE
+)
+pred_2 <- data.frame(Pred = fit_knn_2, Observed = pitches_2)
+table("Predicted" = pred_2$Pred, "Observed" = pred_2$Observed)
+```
+```{r}
+test_3 <- player3[c("start_speed", "pfx_x", "pfx_z", "pitch_type")]
+pitches_3 <- test_3$pitch_type
+test3_cleaned_scaled <- colnames(test_3) %>% 
+  setdiff("pitch_type") %>%
+  lapply(function(column_name){
+    scale_by(
+      test_3[[column_name]],
+      scale_values[[column_name]][["mean"]],
+      scale_values[[column_name]][["sd"]]
+    )
+  }) %>% 
+  do.call('data.frame',.) %>% 
+  setNames(colnames(test_3) %>% setdiff("pitch_type"))
+fit_knn_3 <- knn(
+  train = training_player,
+  test = test3_cleaned_scaled,
+  cl = train_pitches,
+  k = 13,
+  prob = TRUE
+)
+pred_3 <- data.frame(Pred = fit_knn_3, Observed = pitches_3)
+table("Predicted" = pred_3$Pred, "Observed" = pred_3$Observed)
+```
+```{r}
+test_4 <- player4[c("start_speed", "pfx_x", "pfx_z", "pitch_type")]
+pitches_4 <- test_4$pitch_type
+test4_cleaned_scaled <- colnames(test_4) %>% 
+  setdiff("pitch_type") %>%
+  lapply(function(column_name){
+    scale_by(
+      test_4[[column_name]],
+      scale_values[[column_name]][["mean"]],
+      scale_values[[column_name]][["sd"]]
+    )
+  }) %>% 
+  do.call('data.frame',.) %>% 
+  setNames(colnames(test_4) %>% setdiff("pitch_type"))
+fit_knn_4 <- knn(
+  train = training_player,
+  test = test4_cleaned_scaled,
+  cl = train_pitches,
+  k = 13,
+  prob = TRUE
+)
+pred_4 <- data.frame(Pred = fit_knn_4, Observed = pitches_4)
+table("Predicted" = pred_4$Pred, "Observed" = pred_4$Observed)
+```
+```{r}
+test_5 <- player5[c("start_speed", "pfx_x", "pfx_z", "pitch_type")]
+pitches_5 <- test_5$pitch_type
+test5_cleaned_scaled <- colnames(test_5) %>% 
+  setdiff("pitch_type") %>%
+  lapply(function(column_name){
+    scale_by(
+      test_5[[column_name]],
+      scale_values[[column_name]][["mean"]],
+      scale_values[[column_name]][["sd"]]
+    )
+  }) %>% 
+  do.call('data.frame',.) %>% 
+  setNames(colnames(test_5) %>% setdiff("pitch_type"))
+fit_knn_5 <- knn(
+  train = training_player,
+  test = test5_cleaned_scaled,
+  cl = train_pitches,
+  k = 13,
+  prob = TRUE
+)
+pred_5 <- data.frame(Pred = fit_knn_5, Observed = pitches_5)
+table("Predicted" = pred_5$Pred, "Observed" = pred_5$Observed)
+```
+```{r}
+test_6 <- player6[c("start_speed", "pfx_x", "pfx_z", "pitch_type")]
+pitches_6 <- test_6$pitch_type
+test6_cleaned_scaled <- colnames(test_6) %>% 
+  setdiff("pitch_type") %>%
+  lapply(function(column_name){
+    scale_by(
+      test_6[[column_name]],
+      scale_values[[column_name]][["mean"]],
+      scale_values[[column_name]][["sd"]]
+    )
+  }) %>% 
+  do.call('data.frame',.) %>% 
+  setNames(colnames(test_6) %>% setdiff("pitch_type"))
+fit_knn_6 <- knn(
+  train = training_player,
+  test = test6_cleaned_scaled,
+  cl = train_pitches,
+  k = 13,
+  prob = TRUE
+)
+pred_6 <- data.frame(Pred = fit_knn_6, Observed = pitches_6)
+table("Predicted" = pred_6$Pred, "Observed" = pred_6$Observed)
+```
+```{r}
+ggplot(train_cleaned[which(train_cleaned$pitch_type == "SL"), ], aes(start_speed)) + geom_histogram(binwidth = 3) + geom_vline(aes(xintercept = mean(train_cleaned[which(train_cleaned$pitch_type == "SL"), ]$start_speed)), color = "green") + geom_vline(aes(xintercept = mean(test_1[which(test_1$pitch_type == "SL"), ]$start_speed)), color = "red") + geom_vline(aes(xintercept = mean(train_cleaned[which(train_cleaned$pitch_type == "CH"),   ]$start_speed)), color = "blue") + geom_vline(aes(xintercept = mean(train_cleaned[which(train_cleaned$pitch_type == "CU"),   ]$start_speed)), color = "yellow") + labs(x = "Velocity (in mph)", y = "Frequency", title = "A comparison of the Velocity of Sliders in MLB vs Player 1")
+```
+```{r}
+ggplot(train_cleaned[which(train_cleaned$pitch_type == "SL"), ], aes(pfx_x)) + geom_histogram(binwidth = 3) + geom_vline(aes(xintercept = mean(train_cleaned[which(train_cleaned$pitch_type == "SL"), ]$pfx_x)), color = "green") + geom_vline(aes(xintercept = mean(test_1[which(test_1$pitch_type == "SL"), ]$pfx_x)), color = "red") + geom_vline(aes(xintercept = mean(train_cleaned[which(train_cleaned$pitch_type == "CH"), ]$pfx_x)), color = "blue") + geom_vline(aes(xintercept = mean(train_cleaned[which(train_cleaned$pitch_type == "CU"), ]$pfx_x)), color = "yellow") + labs(x = "Horizontal Break (in inches)", y = "Frequency", title = "A comparison of the Horizontal Break of Sliders in MLB vs Player 1")
+```
+```{r}
+ggplot(train_cleaned[which(train_cleaned$pitch_type == "SL"), ], aes(pfx_z)) + geom_histogram(binwidth = 3) + geom_vline(aes(xintercept = mean(train_cleaned[which(train_cleaned$pitch_type == "SL"), ]$pfx_z)), color = "green") + geom_vline(aes(xintercept = mean(test_1[which(test_1$pitch_type == "SL"), ]$pfx_z)), color = "red") + geom_vline(aes(xintercept = mean(train_cleaned[which(train_cleaned$pitch_type == "CH"), ]$pfx_z)), color = "blue") + geom_vline(aes(xintercept = mean(train_cleaned[which(train_cleaned$pitch_type == "CU"), ]$pfx_z)), color = "yellow") + labs(x = "Vertical Break (in inches)", y = "Frequency", title = "A comparison of the Vertical Break of Sliders in MLB vs Player 1")
+```
+
+
